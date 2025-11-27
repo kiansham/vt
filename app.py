@@ -111,9 +111,9 @@ def load_data(filepath):
         if df.empty or len(df) == 0:
             return pd.DataFrame()
         if 'Meeting Date' in df.columns:
-            df['Meeting Date'] = pd.to_datetime(df['Meeting Date'], errors='coerce')
+            df['Meeting Date'] = pd.to_datetime(df['Meeting Date'], errors='coerce', format='mixed')
         if 'Record Date' in df.columns:
-            df['Record Date'] = pd.to_datetime(df['Record Date'], errors='coerce')
+            df['Record Date'] = pd.to_datetime(df['Record Date'], errors='coerce', format='mixed')
         return df
     except:
         return pd.DataFrame()
@@ -215,7 +215,7 @@ def calculate_proposal_overview(df):
         stats['votes_shareholder_proposals'] = int((df['Proponent'] == 'Shareholder').sum())
 
     # Calculate percentages
-    for key in stats:
+    for key in list(stats.keys()):
         if key.startswith('votes_') and key not in ['votes_msop_1yr', 'votes_msop_2yr', 'votes_msop_3yr', 'votes_msop_exclude_freq']:
             pct_key = key + '_pct'
             stats[pct_key] = round(100 * stats[key] / max(total_items, 1), 2)
