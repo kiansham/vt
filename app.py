@@ -33,20 +33,7 @@ def inject_css():
     <style>
     @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
     .material-icons { font-family: 'Material Icons'; font-size: 24px; vertical-align: middle; }
-    .main-header { font-size: 2rem; font-weight: 700; color: #2c3e50; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
-    .sub-header { font-size: 1rem; color: #7f8c8d; margin-bottom: 1.5rem; }
-    .section-header { font-size: 1.3rem; font-weight: 600; color: #2c3e50; margin: 1.5rem 0 1rem 0; display: flex; align-items: center; gap: 0.5rem; }
-    .info-box { background: #f8f9fa; border-left: 4px solid #3498db; padding: 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; }
-    .stProgress > div > div > div > div { background: linear-gradient(90deg, #3498db, #2ecc71); }
-    div[data-testid="stSidebar"] { background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%); }
-    div[data-testid="stSidebar"] .stSelectbox label { color: white !important; }
-    div[data-testid="stSidebar"] p, div[data-testid="stSidebar"] span { color: white !important; }
-    .no-meetings { text-align: center; padding: 3rem; background: #f8f9fa; border-radius: 12px; margin: 2rem 0; }
-    .no-meetings-icon { font-size: 4rem; color: #bdc3c7; }
-    .metric-container { background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; }
-    .sidebar-header { color: white; font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; }
     </style>
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     """, unsafe_allow_html=True)
 
 def get_name(code):
@@ -299,96 +286,57 @@ def render_grid(df, height=400):
                   update_mode=GridUpdateMode.NO_UPDATE, allow_unsafe_jscode=True)
 
 def no_mtgs():
-    st.markdown("""
-    <div class="no-meetings">
-        <span class="material-icons no-meetings-icon">event_busy</span>
-        <h2 style="color: #7f8c8d; margin-top: 1rem;">No Meetings During This Period</h2>
-        <p style="color: #95a5a6;">There were no proxy voting meetings recorded for the selected fund and time period.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("📅 No Meetings During This Period")
+    st.write("There were no proxy voting meetings recorded for the selected fund and time period.")
 
 def gen_pdf(df, code, qtr):
     html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Proxy Voting Report - {code}</title>
     <style>
     @media print {{ @page {{ size: A4 landscape; margin: 15mm; }} }}
-    body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; color: #2c3e50; }}
-    .header {{ background: linear-gradient(135deg, #3498db, #2c3e50); color: white; padding: 30px; border-radius: 8px; margin-bottom: 30px; }}
-    .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
-    .header-info {{ display: flex; gap: 40px; margin-top: 15px; }}
-    .header-info div {{ background: rgba(255,255,255,0.15); padding: 10px 20px; border-radius: 6px; }}
-    .header-info label {{ font-size: 12px; opacity: 0.8; display: block; }}
-    .header-info span {{ font-size: 16px; font-weight: 600; }}
-    .section {{ margin: 25px 0; }}
-    .section-title {{ font-size: 18px; font-weight: 600; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 8px; margin-bottom: 15px; }}
-    .stats-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
-    .stat-card {{ background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; border-left: 4px solid #3498db; }}
-    .stat-value {{ font-size: 28px; font-weight: 700; color: #3498db; }}
-    .stat-label {{ font-size: 12px; color: #7f8c8d; margin-top: 5px; }}
-    table {{ width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }}
-    th {{ background: #3498db; color: white; padding: 10px 8px; text-align: left; font-weight: 600; }}
-    td {{ padding: 8px; border-bottom: 1px solid #ecf0f1; }}
-    tr:nth-child(even) {{ background: #f8f9fa; }}
-    tr:hover {{ background: #e8f4f8; }}
+    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+    h1 {{ font-size: 24px; }}
+    h2 {{ font-size: 18px; margin-top: 20px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+    th {{ background: #333; color: white; padding: 8px; text-align: left; }}
+    td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
     .page-break {{ page-break-before: always; }}
-    .footer {{ margin-top: 30px; padding-top: 15px; border-top: 1px solid #ecf0f1; font-size: 11px; color: #95a5a6; text-align: center; }}
     </style></head><body>
-    <div class="header">
-        <h1>Proxy Voting Report</h1>
-        <div class="header-info">
-            <div><label>Fund</label><span>{code}</span></div>
-            <div><label>Period</label><span>{qtr}</span></div>
-            <div><label>Generated</label><span>{datetime.now().strftime('%d %b %Y')}</span></div>
-        </div>
-    </div>"""
+    <h1>Proxy Voting Report</h1>
+    <p><strong>Fund:</strong> {code} | <strong>Period:</strong> {qtr} | <strong>Generated:</strong> {datetime.now().strftime('%d %b %Y')}</p>"""
 
     if not df.empty:
         stats = calc_stats(df)
         pct = round(100 * stats.get('with_mgmt', 0) / max(stats.get('proposals', 1), 1), 1)
         html += f"""
-        <div class="section">
-            <div class="section-title">Summary Statistics</div>
-            <div class="stats-grid">
-                <div class="stat-card"><div class="stat-value">{stats.get('meetings', 0)}</div><div class="stat-label">Total Meetings</div></div>
-                <div class="stat-card"><div class="stat-value">{stats.get('proposals', 0)}</div><div class="stat-label">Total Proposals</div></div>
-                <div class="stat-card"><div class="stat-value">{stats.get('countries', 0)}</div><div class="stat-label">Countries</div></div>
-                <div class="stat-card"><div class="stat-value">{pct}%</div><div class="stat-label">With Management</div></div>
-            </div>
-        </div>"""
+        <h2>Summary Statistics</h2>
+        <p>Total Meetings: {stats.get('meetings', 0)} | Total Proposals: {stats.get('proposals', 0)} | Countries: {stats.get('countries', 0)} | With Management: {pct}%</p>
+        """
 
         mtg_df = mtg_table(df)
         if mtg_df is not None and not mtg_df.empty:
-            html += '<div class="section"><div class="section-title">Meeting Details</div>'
+            html += '<h2>Meeting Details</h2>'
             html += mtg_df.to_html(index=False, classes='', border=0)
-            html += '</div>'
 
         html += '<div class="page-break"></div>'
 
         prop_df = prop_table(df)
         if prop_df is not None and not prop_df.empty:
-            html += '<div class="section"><div class="section-title">Proposal Details</div>'
+            html += '<h2>Proposal Details</h2>'
             html += prop_df.to_html(index=False, classes='', border=0)
-            html += '</div>'
 
-    html += f'<div class="footer">Generated by Proxy Voting Dashboard | {datetime.now().strftime("%d %b %Y %H:%M")}</div></body></html>'
+    html += f'<p style="margin-top:30px;"><small>Generated by Proxy Voting Dashboard | {datetime.now().strftime("%d %b %Y %H:%M")}</small></p></body></html>'
     return html
 
 def landing():
-    st.markdown("""
-    <div style="text-align: center; padding: 4rem 1rem;">
-        <div style="font-size: 5rem; margin-bottom: 1rem;">📊</div>
-        <h1 style="color: #2c3e50; margin-bottom: 0.5rem;">Proxy Voting Dashboard</h1>
-        <p style="color: #7f8c8d; font-size: 1.1rem; max-width: 600px; margin: 0 auto 2rem auto;">
-            Select a fund and period from the sidebar, then click <strong>"Load Dashboard"</strong> to view the proxy voting data.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.title("📊 Proxy Voting Dashboard")
+    st.write("Select a fund and period from the sidebar, then click **Load Dashboard** to view the proxy voting data.")
 
 def main():
     inject_css()
 
     with st.sidebar:
-        st.markdown('<p class="sidebar-header"><span class="material-icons" style="font-size:1.8rem;margin-right:8px;">how_to_vote</span>Proxy Voting</p>', unsafe_allow_html=True)
+        st.header("🗳️ Proxy Voting")
         st.markdown("---")
 
         data_dir = "./data"
@@ -407,7 +355,7 @@ def main():
         codes = list(funds.keys())
         disp = {c: f"{get_name(c)} ({c})" for c in codes}
 
-        st.markdown('<p style="font-size:0.9rem;margin-bottom:0.5rem;"><span class="material-icons" style="font-size:18px;color:#3498db;">account_balance</span> Select Fund</p>', unsafe_allow_html=True)
+        st.write("🏦 Select Fund")
         sel_fund = st.selectbox("Fund", codes, format_func=lambda x: disp[x], label_visibility="collapsed")
 
         qtrs = get_qtrs(sel_fund, funds[sel_fund])
@@ -415,7 +363,7 @@ def main():
         last_6 = gen_quarters()
         select_q = [q for q in last_6 if q in avail_q]
 
-        st.markdown('<p style="font-size:0.9rem;margin-bottom:0.5rem;margin-top:1rem;"><span class="material-icons" style="font-size:18px;color:#3498db;">date_range</span> Select Period</p>', unsafe_allow_html=True)
+        st.write("📅 Select Period")
 
         sel_qtr = None
         data_file = None
@@ -450,7 +398,7 @@ def main():
                 st.rerun()
 
         st.markdown("---")
-        st.markdown('<p style="font-size:0.85rem;"><span class="material-icons" style="font-size:16px;color:#2ecc71;">info</span> Data Summary</p>', unsafe_allow_html=True)
+        st.write("ℹ️ Data Summary")
         st.caption(f"Available Funds: {len(codes)}")
 
     if not st.session_state.data_loaded:
@@ -462,13 +410,13 @@ def main():
     data_file = st.session_state.data_file
     full_name = get_name(sel_fund)
 
-    st.markdown(f'<h1 class="main-header"><span class="material-icons" style="color:#3498db;font-size:2rem;">assessment</span>Proxy Voting Report</h1>', unsafe_allow_html=True)
+    st.title("📊 Proxy Voting Report")
 
     c1, c2, c3 = st.columns([2, 2, 1])
     with c1:
-        st.markdown(f'<div class="info-box"><span class="material-icons" style="color:#3498db;font-size:18px;">business</span> <strong>Fund Name:</strong> {full_name}</div>', unsafe_allow_html=True)
+        st.info(f"🏢 **Fund Name:** {full_name}")
     with c2:
-        st.markdown(f'<div class="info-box"><span class="material-icons" style="color:#3498db;font-size:18px;">event</span> <strong>Reporting Period:</strong> {sel_qtr if sel_qtr else "N/A"}</div>', unsafe_allow_html=True)
+        st.info(f"📅 **Reporting Period:** {sel_qtr if sel_qtr else 'N/A'}")
 
     if data_file is None:
         no_mtgs()
@@ -510,7 +458,7 @@ def main():
 
     with left:
         # Meeting Overview
-        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 1rem;">Meeting Overview</h2>', unsafe_allow_html=True)
+        st.subheader("Meeting Overview")
         m_data = {
             'Category': [
                 'Number of votable meetings',
@@ -523,7 +471,7 @@ def main():
         st.dataframe(pd.DataFrame(m_data), hide_index=True, use_container_width=True)
 
         # Ballot Overview
-        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 2rem;">Ballot Overview</h2>', unsafe_allow_html=True)
+        st.subheader("Ballot Overview")
         b_data = {
             'Category': ['Number of votable ballots', 'Number of ballots voted'],
             'Number': [b.get('votable', 0), b.get('voted', 0)],
@@ -532,7 +480,7 @@ def main():
         st.dataframe(pd.DataFrame(b_data), hide_index=True, use_container_width=True)
 
         # Proposal Overview
-        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 2rem;">Proposal Overview</h2>', unsafe_allow_html=True)
+        st.subheader("Proposal Overview")
         p_data = {
             'Category': [
                 'Number of votable items', 'Number of items voted',
@@ -568,19 +516,19 @@ def main():
         st.dataframe(pd.DataFrame(p_data), hide_index=True, use_container_width=True, height=600)
 
     with right:
-        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 1rem;">Voting Statistics</h2>', unsafe_allow_html=True)
+        st.subheader("Voting Statistics")
         chart = chart_vote_stats(m, b, p)
         if chart:
             st.plotly_chart(chart, use_container_width=True)
 
-        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 2rem;">Vote Cast Statistics</h2>', unsafe_allow_html=True)
+        st.subheader("Vote Cast Statistics")
         donut = chart_donut(p)
         if donut:
             st.plotly_chart(donut, use_container_width=True)
 
     # Additional sections
     st.markdown("---")
-    st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">category</span>Proposal Categories & Geography</h2>', unsafe_allow_html=True)
+    st.subheader("📂 Proposal Categories & Geography")
 
     c3, c4 = st.columns(2)
     with c3:
@@ -594,13 +542,13 @@ def main():
         if cntry:
             st.plotly_chart(cntry, use_container_width=True)
 
-    st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">event</span>Meeting Details</h2>', unsafe_allow_html=True)
+    st.subheader("📅 Meeting Details")
 
     mtg_df = mtg_table(df)
     if mtg_df is not None and not mtg_df.empty:
         render_grid(mtg_df, height=350)
 
-    st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">ballot</span>Proposal Details</h2>', unsafe_allow_html=True)
+    st.subheader("🗳️ Proposal Details")
 
     prop_df = prop_table(df)
     if prop_df is not None and not prop_df.empty:
@@ -627,7 +575,7 @@ def main():
         render_grid(filt, height=500)
 
     st.markdown("---")
-    st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">download</span>Export Report</h2>', unsafe_allow_html=True)
+    st.subheader("⬇️ Export Report")
 
     d1, d2 = st.columns(2)
     with d1:
