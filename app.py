@@ -311,12 +311,16 @@ def main():
     with st.sidebar:
         st.markdown('<p class="sidebar-header"><span class="material-icons" style="font-size:1.8rem;margin-right:8px;">how_to_vote</span>Proxy Voting</p>', unsafe_allow_html=True)
         st.markdown("---")
-        
-        data_dir = "/mnt/user-data/uploads"
-        
+
+        data_dir = "./data"
+
+        if not os.path.exists(data_dir):
+            st.error(f"Data directory not found: {data_dir}")
+            st.stop()
+
         with st.spinner("Scanning funds..."):
             available_funds = scan_available_funds(data_dir)
-        
+
         if not available_funds:
             st.warning("No fund data found.")
             st.stop()
