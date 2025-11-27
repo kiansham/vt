@@ -136,6 +136,182 @@ def create_summary_stats(df):
         stats["with_mgmt"] = (df['Vote Against Management'] == 'No').sum()
     return stats
 
+def calculate_meeting_overview(df):
+    """Calculate meeting-level statistics"""
+    if df.empty:
+        return {}
+
+    total_meetings = df['Company Name'].nunique() if 'Company Name' in df.columns else 0
+
+    # Calculate meetings with at least 1 against/withhold/abstain vote
+    meetings_with_dissent = 0
+    if 'Company Name' in df.columns and 'Vote Instruction' in df.columns:
+        dissent_votes = df[df['Vote Instruction'].isin(['Against', 'Withhold', 'Abstain'])]
+        meetings_with_dissent = dissent_votes['Company Name'].nunique()
+
+    return {
+        'votable_meetings': total_meetings,
+        'meetings_voted': total_meetings,  # Assuming all votable meetings were voted
+        'meetings_with_dissent': meetings_with_dissent,
+        'dissent_percentage': round(100 * meetings_with_dissent / max(total_meetings, 1), 2)
+    }
+
+def calculate_ballot_overview(df):
+    """Calculate ballot-level statistics"""
+    if df.empty:
+        return {}
+
+    total_ballots = df['Company Name'].nunique() if 'Company Name' in df.columns else 0
+
+    return {
+        'votable_ballots': total_ballots,
+        'ballots_voted': total_ballots  # Assuming all votable ballots were voted
+    }
+
+def calculate_proposal_overview(df):
+    """Calculate detailed proposal voting statistics"""
+    if df.empty:
+        return {}
+
+    total_items = len(df)
+    stats = {
+        'votable_items': total_items,
+        'items_voted': total_items,
+        'votes_for': 0,
+        'votes_against': 0,
+        'votes_abstain': 0,
+        'votes_withhold': 0,
+        'votes_msop_1yr': 0,
+        'votes_msop_2yr': 0,
+        'votes_msop_3yr': 0,
+        'votes_with_policy': 0,
+        'votes_against_policy': 0,
+        'votes_with_mgmt': 0,
+        'votes_against_mgmt': 0,
+        'votes_msop_exclude_freq': 0,
+        'votes_shareholder_proposals': 0
+    }
+
+    # Vote instruction counts
+    if 'Vote Instruction' in df.columns:
+        vote_counts = df['Vote Instruction'].value_counts()
+        stats['votes_for'] = int(vote_counts.get('For', 0))
+        stats['votes_against'] = int(vote_counts.get('Against', 0))
+        stats['votes_abstain'] = int(vote_counts.get('Abstain', 0))
+        stats['votes_withhold'] = int(vote_counts.get('Withhold', 0))
+
+    # Management alignment
+    if 'Vote Against Management' in df.columns:
+        stats['votes_with_mgmt'] = int((df['Vote Against Management'] == 'No').sum())
+        stats['votes_against_mgmt'] = int((df['Vote Against Management'] == 'Yes').sum())
+
+    # Policy alignment (using ISS as proxy for policy)
+    if 'Vote Against ISS' in df.columns:
+        stats['votes_with_policy'] = int((df['Vote Against ISS'] == 'No').sum())
+        stats['votes_against_policy'] = int((df['Vote Against ISS'] == 'Yes').sum())
+
+    # Shareholder proposals
+    if 'Proponent' in df.columns:
+        stats['votes_shareholder_proposals'] = int((df['Proponent'] == 'Shareholder').sum())
+
+    # Calculate percentages
+    for key in stats:
+        if key.startswith('votes_') and key not in ['votes_msop_1yr', 'votes_msop_2yr', 'votes_msop_3yr', 'votes_msop_exclude_freq']:
+            pct_key = key + '_pct'
+            stats[pct_key] = round(100 * stats[key] / max(total_items, 1), 2)
+
+    return stats
+
+def create_voting_statistics_chart(meeting_stats, ballot_stats, proposal_stats):
+    """Create horizontal bar chart showing votable vs voted statistics"""
+    categories = ['Meetings', 'Ballots', 'Proposals']
+    votable = [
+        meeting_stats.get('votable_meetings', 0),
+        ballot_stats.get('votable_ballots', 0),
+        proposal_stats.get('votable_items', 0)
+    ]
+    voted = [
+        meeting_stats.get('meetings_voted', 0),
+        ballot_stats.get('ballots_voted', 0),
+        proposal_stats.get('items_voted', 0)
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name='Votable',
+        y=categories,
+        x=votable,
+        orientation='h',
+        marker=dict(color='#34495e'),
+        text=votable,
+        textposition='inside',
+        textfont=dict(color='white')
+    ))
+    fig.add_trace(go.Bar(
+        name='Voted',
+        y=categories,
+        x=voted,
+        orientation='h',
+        marker=dict(color='#e74c3c'),
+        text=voted,
+        textposition='inside',
+        textfont=dict(color='white')
+    ))
+
+    fig.update_layout(
+        barmode='overlay',
+        height=300,
+        margin=dict(t=30, b=30, l=80, r=30),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(type='log', showgrid=True, gridcolor='#ecf0f1')
+    )
+
+    return fig
+
+def create_vote_cast_donut(proposal_stats):
+    """Create donut chart showing vote cast distribution"""
+    labels = []
+    values = []
+    colors = []
+
+    vote_data = [
+        ('Votes For', proposal_stats.get('votes_for', 0), '#34495e'),
+        ('Votes Abstain', proposal_stats.get('votes_abstain', 0), '#9b59b6'),
+        ('Votes Withhold', proposal_stats.get('votes_withhold', 0), '#a29bfe'),
+        ('Votes Against', proposal_stats.get('votes_against', 0), '#dfe6e9'),
+        ('Votes MSOP 1 Year', proposal_stats.get('votes_msop_1yr', 0), '#e74c3c'),
+        ('Votes MSOP 2 Years', proposal_stats.get('votes_msop_2yr', 0), '#ff7675'),
+        ('Votes MSOP 3 Years', proposal_stats.get('votes_msop_3yr', 0), '#fd79a8')
+    ]
+
+    for label, value, color in vote_data:
+        if value > 0:
+            labels.append(label)
+            values.append(value)
+            colors.append(color)
+
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.5,
+        marker=dict(colors=colors),
+        textposition='outside',
+        textinfo='label+percent'
+    )])
+
+    fig.update_layout(
+        height=400,
+        margin=dict(t=30, b=30, l=30, r=30),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=True,
+        legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.1)
+    )
+
+    return fig
+
 def create_vote_summary_chart(df):
     if df.empty or 'Vote Instruction' not in df.columns:
         return None
@@ -420,40 +596,166 @@ def main():
     time.sleep(0.15)
     
     stats = create_summary_stats(df)
+    meeting_stats = calculate_meeting_overview(df)
+    ballot_stats = calculate_ballot_overview(df)
+    proposal_stats = calculate_proposal_overview(df)
+
     progress.progress(100)
     time.sleep(0.1)
     status.empty()
     progress.empty()
-    
-    st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">analytics</span>Summary Statistics</h2>', unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(label="Total Meetings", value=stats.get('total_meetings', 0))
-    with col2:
-        st.metric(label="Total Proposals", value=stats.get('total_proposals', 0))
-    with col3:
-        st.metric(label="Countries", value=stats.get('countries', 0))
-    with col4:
-        pct_with = round(100 * stats.get('with_mgmt', 0) / max(stats.get('total_proposals', 1), 1), 1)
-        st.metric(label="With Management", value=f"{pct_with}%")
-    
-    st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">pie_chart</span>Vote Distribution</h2>', unsafe_allow_html=True)
-    
-    chart_col1, chart_col2 = st.columns(2)
-    with chart_col1:
-        st.markdown("**Vote Instructions**")
-        vote_chart = create_vote_summary_chart(df)
-        if vote_chart:
-            st.plotly_chart(vote_chart, use_container_width=True)
-    with chart_col2:
-        st.markdown("**Management Alignment**")
-        mgmt_chart = create_mgmt_alignment_chart(df)
-        if mgmt_chart:
-            st.plotly_chart(mgmt_chart, use_container_width=True)
-    
+
+    # Parameters Used Section
+    st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">settings</span>Parameters Used</h2>', unsafe_allow_html=True)
+
+    # Get date range from data
+    date_range = "N/A"
+    if 'Meeting Date' in df.columns:
+        valid_dates = df['Meeting Date'].dropna()
+        if not valid_dates.empty:
+            min_date = valid_dates.min().strftime('%m/%d/%y')
+            max_date = valid_dates.max().strftime('%m/%d/%y')
+            date_range = f"{min_date} to {max_date}"
+
+    # Get unique account info
+    institution_account = "AQR Apex UCITS Fund"  # Default
+    if 'Institution Account(s)' in df.columns:
+        accounts = df['Institution Account(s)'].unique()
+        if len(accounts) > 0:
+            institution_account = accounts[0]
+
+    st.markdown(f"""
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+            <div><strong>Location(s):</strong> All locations</div>
+            <div><strong>Custodian Account(s):</strong> All custodian accounts</div>
+            <div><strong>Account Group(s):</strong> All account groups</div>
+            <div><strong>Reporting Period:</strong> {date_range}</div>
+            <div><strong>Institution Account(s):</strong> {institution_account}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Two-column layout for overview tables and charts
+    left_col, right_col = st.columns([1, 1])
+
+    with left_col:
+        # Meeting Overview
+        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 1rem;">Meeting Overview</h2>', unsafe_allow_html=True)
+        meeting_data = {
+            'Category': [
+                'Number of votable meetings',
+                'Number of meetings voted',
+                'Number of meetings with at least 1 vote Against, Withhold or Abstain'
+            ],
+            'Number': [
+                meeting_stats.get('votable_meetings', 0),
+                meeting_stats.get('meetings_voted', 0),
+                meeting_stats.get('meetings_with_dissent', 0)
+            ],
+            'Percentage': [
+                '',
+                '100.00%',
+                f"{meeting_stats.get('dissent_percentage', 0):.2f}%"
+            ]
+        }
+        meeting_df = pd.DataFrame(meeting_data)
+        st.dataframe(meeting_df, hide_index=True, use_container_width=True)
+
+        # Ballot Overview
+        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 2rem;">Ballot Overview</h2>', unsafe_allow_html=True)
+        ballot_data = {
+            'Category': [
+                'Number of votable ballots',
+                'Number of ballots voted'
+            ],
+            'Number': [
+                ballot_stats.get('votable_ballots', 0),
+                ballot_stats.get('ballots_voted', 0)
+            ],
+            'Percentage': [
+                '',
+                '100.00%'
+            ]
+        }
+        ballot_df = pd.DataFrame(ballot_data)
+        st.dataframe(ballot_df, hide_index=True, use_container_width=True)
+
+        # Proposal Overview
+        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 2rem;">Proposal Overview</h2>', unsafe_allow_html=True)
+        proposal_data = {
+            'Category': [
+                'Number of votable items',
+                'Number of items voted',
+                'Number of votes FOR',
+                'Number of votes AGAINST',
+                'Number of votes ABSTAIN',
+                'Number of votes WITHHOLD',
+                'Number of votes on MSOP Frequency 1 Year',
+                'Number of votes on MSOP Frequency 2 Years',
+                'Number of votes on MSOP Frequency 3 Years',
+                'Number of votes With Policy',
+                'Number of votes Against Policy',
+                'Number of votes With Mgmt',
+                'Number of votes Against Mgmt',
+                'Number of votes on MSOP (exclude frequency)',
+                'Number of votes on Shareholder Proposals'
+            ],
+            'Number': [
+                proposal_stats.get('votable_items', 0),
+                proposal_stats.get('items_voted', 0),
+                proposal_stats.get('votes_for', 0),
+                proposal_stats.get('votes_against', 0),
+                proposal_stats.get('votes_abstain', 0),
+                proposal_stats.get('votes_withhold', 0),
+                proposal_stats.get('votes_msop_1yr', 0),
+                proposal_stats.get('votes_msop_2yr', 0),
+                proposal_stats.get('votes_msop_3yr', 0),
+                proposal_stats.get('votes_with_policy', 0),
+                proposal_stats.get('votes_against_policy', 0),
+                proposal_stats.get('votes_with_mgmt', 0),
+                proposal_stats.get('votes_against_mgmt', 0),
+                proposal_stats.get('votes_msop_exclude_freq', 0),
+                proposal_stats.get('votes_shareholder_proposals', 0)
+            ],
+            'Percentage': [
+                '',
+                '100.00%',
+                f"{proposal_stats.get('votes_for_pct', 0):.2f}%",
+                f"{proposal_stats.get('votes_against_pct', 0):.2f}%",
+                f"{proposal_stats.get('votes_abstain_pct', 0):.2f}%",
+                f"{proposal_stats.get('votes_withhold_pct', 0):.2f}%",
+                '0.00%',
+                '0.00%',
+                '0.00%',
+                f"{proposal_stats.get('votes_with_policy_pct', 0):.2f}%",
+                f"{proposal_stats.get('votes_against_policy_pct', 0):.2f}%",
+                f"{proposal_stats.get('votes_with_mgmt_pct', 0):.2f}%",
+                f"{proposal_stats.get('votes_against_mgmt_pct', 0):.2f}%",
+                '0.00%',
+                f"{proposal_stats.get('votes_shareholder_proposals_pct', 0):.2f}%"
+            ]
+        }
+        proposal_overview_df = pd.DataFrame(proposal_data)
+        st.dataframe(proposal_overview_df, hide_index=True, use_container_width=True, height=600)
+
+    with right_col:
+        # Voting Statistics Chart
+        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 1rem;">Voting Statistics</h2>', unsafe_allow_html=True)
+        voting_stats_chart = create_voting_statistics_chart(meeting_stats, ballot_stats, proposal_stats)
+        if voting_stats_chart:
+            st.plotly_chart(voting_stats_chart, use_container_width=True)
+
+        # Vote Cast Statistics Chart
+        st.markdown('<h2 style="color: #3498db; font-size: 1.3rem; margin-top: 2rem;">Vote Cast Statistics</h2>', unsafe_allow_html=True)
+        vote_cast_chart = create_vote_cast_donut(proposal_stats)
+        if vote_cast_chart:
+            st.plotly_chart(vote_cast_chart, use_container_width=True)
+
+    # Additional sections below
+    st.markdown("---")
     st.markdown('<h2 class="section-header"><span class="material-icons" style="color:#3498db;">category</span>Proposal Categories & Geography</h2>', unsafe_allow_html=True)
-    
+
     chart_col3, chart_col4 = st.columns(2)
     with chart_col3:
         st.markdown("**Top Proposal Categories**")
