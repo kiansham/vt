@@ -2,25 +2,46 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-from datetime import datetime
 import os
 import glob
+from datetime import datetime
 
-st.set_page_config(page_title="Proxy Voting Dashboard", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Executive Proxy Dashboard", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
-FUND_MAP = {
+COLORS = {
+    "primary": "#0f172a",
+    "success": "#22c55e",
+    "danger": "#ef4444",
+    "warning": "#f59e0b",
+    "muted": "#64748b"
+}
+
+FUND_NAME_MAP = {
     "DEFGLITS": "AQR Delphi Global Equity Fund",
     "AQRGLOB": "AQR Global Core Fund",
     "AQREMERGE": "AQR Emerging Markets Fund",
 }
 
 
-def get_name(code):
-    return FUND_MAP.get(code, code)
+def inject_css():
+    st.markdown("""
+    <style>
+        div[data-testid="stMetric"] {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 15px 20px;
+            border-radius: 8px;
+        }
+        footer { visibility: hidden; }
+    </style>
+    """, unsafe_allow_html=True)
 
 
-def get_qtr(date_series):
+def get_fund_name(code):
+    return FUND_NAME_MAP.get(code, code)
+
+
+def get_quarter_from_dates(date_series):
     valid = pd.to_datetime(date_series, errors='coerce').dropna()
     if valid.empty:
         return None
@@ -28,384 +49,322 @@ def get_qtr(date_series):
     return f"Q{(latest.month - 1) // 3 + 1} {latest.year}"
 
 
-def gen_quarters():
+def get_fund_code(filename):
+    base = os.path.basename(filename)
+    return base.split('_')[0] if '_' in base else base.split('.')[0]
+
+
+def generate_quarter_choices():
     now = datetime.now()
     q, y = (now.month - 1) // 3 + 1, now.year
-    qtrs = []
+    quarters = []
     for _ in range(6):
-        qtrs.append(f"Q{q} {y}")
+        quarters.append(f"Q{q} {y}")
         q -= 1
         if q == 0:
             q, y = 4, y - 1
-    return qtrs
+    return quarters
 
 
 @st.cache_data(ttl=3600)
-def scan_funds(data_dir):
+def scan_data_directory(data_dir):
     files = glob.glob(os.path.join(data_dir, "*.csv")) + glob.glob(os.path.join(data_dir, "*.CSV"))
     funds = {}
     for f in files:
-        base = os.path.basename(f)
-        code = base.split('_')[0] if '_' in base else base.split('.')[0]
+        code = get_fund_code(f)
         funds.setdefault(code, []).append(f)
     return funds
 
 
 @st.cache_data(ttl=3600)
-def get_qtrs(code, files):
-    qtrs = {}
-    for f in files:
+def get_fund_quarters(fund_code, file_list):
+    quarters = {}
+    for f in file_list:
         try:
             df = pd.read_csv(f, nrows=100)
             if 'Meeting Date' in df.columns and not df.empty:
-                q = get_qtr(df['Meeting Date'])
-                if q and q not in qtrs:
-                    qtrs[q] = f
+                q = get_quarter_from_dates(df['Meeting Date'])
+                if q and q not in quarters:
+                    quarters[q] = f
         except:
             continue
-    return qtrs
+    return quarters
 
 
 @st.cache_data(ttl=600)
 def load_data(filepath):
-    try:
-        df = pd.read_csv(filepath)
-        if df.empty:
-            return pd.DataFrame()
-        for col in ['Meeting Date', 'Record Date']:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce', format='mixed')
-        return df
-    except:
-        return pd.DataFrame()
+    df = pd.read_csv(filepath)
+    for col in ['Meeting Date', 'Record Date']:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce', format='mixed')
+    return df
 
 
-def calc_stats(df):
-    if df.empty:
-        return {
-            'meetings': 0, 'ballots': 0, 'proposals': 0, 'dissent': 0, 'dissent_pct': 0,
-            'for': 0, 'against': 0, 'abstain': 0, 'withhold': 0,
-            'with_mgmt': 0, 'vs_mgmt': 0, 'with_pol': 0, 'vs_pol': 0, 'sh_props': 0
-        }
-    
+def calc_statistics(df):
     total = len(df)
     meetings = df['Company Name'].nunique() if 'Company Name' in df.columns else 0
-    
+
     stats = {
         'meetings': meetings, 'ballots': meetings, 'proposals': total,
         'for': 0, 'against': 0, 'abstain': 0, 'withhold': 0,
-        'with_mgmt': 0, 'vs_mgmt': 0, 'with_pol': 0, 'vs_pol': 0, 'sh_props': 0
+        'with_mgmt': 0, 'vs_mgmt': 0, 'with_pol': 0, 'vs_pol': 0, 'sh_props': 0, 'dissent': 0
     }
-    
+
     if 'Vote Instruction' in df.columns:
         vc = df['Vote Instruction'].value_counts()
         stats['for'] = int(vc.get('For', 0))
         stats['against'] = int(vc.get('Against', 0))
         stats['abstain'] = int(vc.get('Abstain', 0))
         stats['withhold'] = int(vc.get('Withhold', 0))
-        
         dissent_votes = df[df['Vote Instruction'].isin(['Against', 'Withhold', 'Abstain'])]
         stats['dissent'] = dissent_votes['Company Name'].nunique() if 'Company Name' in df.columns else 0
-    else:
-        stats['dissent'] = 0
-    
-    stats['dissent_pct'] = round(100 * stats['dissent'] / max(meetings, 1), 2)
-    
+
     if 'Vote Against Management' in df.columns:
         stats['with_mgmt'] = int((df['Vote Against Management'] == 'No').sum())
         stats['vs_mgmt'] = int((df['Vote Against Management'] == 'Yes').sum())
-    
+
     if 'Vote Against ISS' in df.columns:
         stats['with_pol'] = int((df['Vote Against ISS'] == 'No').sum())
         stats['vs_pol'] = int((df['Vote Against ISS'] == 'Yes').sum())
-    
+
     if 'Proponent' in df.columns:
         stats['sh_props'] = int((df['Proponent'] == 'Shareholder').sum())
-    
-    # Calculate percentages
+
+    stats['dissent_pct'] = round(100 * stats['dissent'] / max(meetings, 1), 2)
     for k in ['for', 'against', 'abstain', 'withhold', 'with_mgmt', 'vs_mgmt', 'with_pol', 'vs_pol', 'sh_props']:
         stats[f'{k}_pct'] = round(100 * stats[k] / max(total, 1), 2)
-    
+
     return stats
 
 
-def chart_vote_stats(s):
+def render_vote_stats_chart(stats):
     cats = ['Meetings', 'Ballots', 'Proposals']
-    vals = [s['meetings'], s['ballots'], s['proposals']]
-    
+    vals = [stats['meetings'], stats['ballots'], stats['proposals']]
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        name='Votable', y=cats, x=vals, orientation='h',
-        marker_color='#34495e', text=vals, textposition='inside'
-    ))
-    fig.add_trace(go.Bar(
-        name='Voted', y=cats, x=vals, orientation='h',
-        marker_color='#e74c3c', text=vals, textposition='inside'
-    ))
-    fig.update_layout(
-        barmode='overlay', height=280, margin=dict(t=20, b=20, l=80, r=20),
-        legend=dict(orientation="h", y=1.1), xaxis=dict(type='log')
-    )
+    fig.add_trace(go.Bar(name='Votable', y=cats, x=vals, orientation='h', marker_color=COLORS['primary'], text=vals, textposition='inside'))
+    fig.add_trace(go.Bar(name='Voted', y=cats, x=vals, orientation='h', marker_color=COLORS['danger'], text=vals, textposition='inside'))
+    fig.update_layout(barmode='overlay', height=280, xaxis=dict(type='log'))
     return fig
 
 
-def chart_donut(s):
-    data = [
-        ('For', s['for'], '#34495e'),
-        ('Abstain', s['abstain'], '#9b59b6'),
-        ('Withhold', s['withhold'], '#a29bfe'),
-        ('Against', s['against'], '#dfe6e9')
-    ]
-    labels, values, colors = zip(*[(l, v, c) for l, v, c in data if v > 0]) if any(d[1] > 0 for d in data) else ([], [], [])
-    
-    if not values:
+def render_vote_distribution_chart(stats):
+    data = [('For', stats['for'], COLORS['success']), ('Against', stats['against'], COLORS['danger']),
+            ('Abstain', stats['abstain'], COLORS['warning']), ('Withhold', stats['withhold'], COLORS['muted'])]
+    filtered = [(l, v, c) for l, v, c in data if v > 0]
+    if not filtered:
         return None
-    
-    fig = go.Figure(go.Pie(
-        labels=labels, values=values, hole=0.5, marker_colors=colors,
-        textposition='outside', textinfo='label+percent'
-    ))
-    fig.update_layout(
-        height=350, margin=dict(t=20, b=20, l=20, r=100),
-        legend=dict(orientation="v", y=0.5, x=1.05)
-    )
+    labels, values, colors = zip(*filtered)
+    fig = go.Figure(go.Pie(labels=labels, values=values, hole=0.6, marker_colors=colors, textposition='outside', textinfo='label+percent'))
+    fig.update_layout(height=320)
     return fig
 
 
-def chart_cats(df):
-    if df.empty or 'Proposal Code Category' not in df.columns:
+def render_category_chart(df):
+    if 'Proposal Code Category' not in df.columns:
         return None
     cats = df['Proposal Code Category'].value_counts().head(10).reset_index()
     cats.columns = ['Category', 'Count']
     fig = px.bar(cats, x='Count', y='Category', orientation='h', color='Count', color_continuous_scale='teal')
-    fig.update_layout(
-        margin=dict(t=20, b=20, l=20, r=20), height=320,
-        yaxis={'categoryorder': 'total ascending'}, coloraxis_showscale=False
-    )
+    fig.update_layout(height=320, yaxis={'categoryorder': 'total ascending'}, coloraxis_showscale=False)
     return fig
 
 
-def chart_country(df):
-    if df.empty or 'Country' not in df.columns:
+def render_country_chart(df):
+    if 'Country' not in df.columns:
         return None
     cc = df.groupby('Country')['Company Name'].nunique().reset_index(name='Meetings')
     cc = cc.sort_values('Meetings', ascending=False).head(10)
     fig = px.bar(cc, x='Country', y='Meetings', color='Meetings', color_continuous_scale='teal')
-    fig.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=320, coloraxis_showscale=False)
+    fig.update_layout(height=320, coloraxis_showscale=False)
     return fig
 
 
-def get_table(df, cols):
+def render_vote_against_rate_chart(df):
+    if 'Proposal Code Category' not in df.columns or 'Vote Against Management' not in df.columns:
+        return None
+    cat_df = df.groupby('Proposal Code Category').agg(
+        Total=('Proposal Text', 'count'),
+        Against=('Vote Against Management', lambda x: (x == 'Yes').sum())
+    ).reset_index()
+    cat_df['Vote Against Rate'] = (cat_df['Against'] / cat_df['Total']) * 100
+    cat_df = cat_df.sort_values('Vote Against Rate', ascending=True).tail(10)
+    fig = px.bar(cat_df, x='Vote Against Rate', y='Proposal Code Category', orientation='h', color='Vote Against Rate', color_continuous_scale='reds')
+    fig.update_layout(height=320, coloraxis_showscale=False)
+    return fig
+
+
+def get_table_data(df, cols):
     avail = [c for c in cols if c in df.columns]
-    tbl = df[avail].drop_duplicates().copy()
-    if 'Meeting Date' in tbl.columns:
-        tbl['Meeting Date'] = tbl['Meeting Date'].dt.strftime('%d-%b-%Y')
-    return tbl
-
-
-def render_grid(df, height=400):
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(resizable=True, filterable=True, sortable=True, wrapText=True, autoHeight=True)
-    gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=15)
-    return AgGrid(
-        df, gridOptions=gb.build(), height=height, theme='streamlit',
-        update_mode=GridUpdateMode.NO_UPDATE
-    )
-
-
-def gen_report(df, code, qtr):
-    stats = calc_stats(df)
-    pct = round(100 * stats['with_mgmt'] / max(stats['proposals'], 1), 1)
-    
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Proxy Voting Report - {code}</title>
-    <style>
-    body {{ font-family: Arial, sans-serif; margin: 20px; }}
-    h1 {{ font-size: 24px; }}
-    h2 {{ font-size: 18px; margin-top: 20px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-    th {{ background: #333; color: white; padding: 8px; text-align: left; }}
-    td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-    </style>
-</head>
-<body>
-    <h1>Proxy Voting Report</h1>
-    <p><strong>Fund:</strong> {code} | <strong>Period:</strong> {qtr} | <strong>Generated:</strong> {datetime.now().strftime('%d %b %Y')}</p>
-    <h2>Summary</h2>
-    <p>Meetings: {stats['meetings']} | Proposals: {stats['proposals']} | With Management: {pct}%</p>"""
-    
-    mtg_cols = ['Company Name', 'Ticker', 'Country', 'Meeting Date', 'Meeting Type']
-    mtg_df = get_table(df, mtg_cols)
-    if not mtg_df.empty:
-        html += '<h2>Meetings</h2>' + mtg_df.to_html(index=False, border=0)
-    
-    prop_cols = [
-        'Company Name', 'Ticker', 'Meeting Date', 'Proposal Number', 'Proposal Text',
-        'Proponent', 'Management Recommendation', 'Vote Instruction', 'Vote Against Management'
-    ]
-    prop_df = get_table(df, prop_cols)
-    if not prop_df.empty:
-        html += '<h2>Proposals</h2>' + prop_df.to_html(index=False, border=0)
-    
-    html += '</body></html>'
-    return html
+    return df[avail].drop_duplicates().copy()
 
 
 def main():
-    # Sidebar
+    inject_css()
+
     with st.sidebar:
-        st.header("🗳️ Proxy Voting")
+        st.title("⚙️ Control Panel")
         data_dir = "./data"
-        
+
         if not os.path.exists(data_dir):
             st.error(f"Data directory not found: {data_dir}")
             st.stop()
-        
-        funds = scan_funds(data_dir)
-        if not funds:
+
+        available_funds = scan_data_directory(data_dir)
+        if not available_funds:
             st.warning("No fund data found.")
             st.stop()
-        
-        codes = list(funds.keys())
-        sel_fund = st.selectbox("Fund", codes, format_func=lambda x: f"{get_name(x)} ({x})")
-        
-        qtrs = get_qtrs(sel_fund, funds[sel_fund])
-        avail_q = list(qtrs.keys())
-        select_q = [q for q in gen_quarters() if q in avail_q] or avail_q
-        sel_qtr = st.selectbox("Period", select_q) if select_q else None
-        data_file = qtrs.get(sel_qtr) if sel_qtr else None
-        
-        load_btn = st.button("Load Dashboard", use_container_width=True, type="primary")
-        
-        if load_btn and data_file:
-            st.session_state.update({'loaded': True, 'fund': sel_fund, 'qtr': sel_qtr, 'file': data_file})
-            st.rerun()
-        
-        if st.session_state.get('loaded') and st.button("Reset", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
-    
-    # Main content
-    if not st.session_state.get('loaded'):
-        st.title("📊 Proxy Voting Dashboard")
-        st.write("Select a fund and period from the sidebar, then click **Load Dashboard**.")
-        st.stop()
-    
-    sel_fund, sel_qtr, data_file = st.session_state['fund'], st.session_state['qtr'], st.session_state['file']
-    
-    st.title("📊 Proxy Voting Report")
-    c1, c2 = st.columns(2)
-    c1.info(f"**Fund:** {get_name(sel_fund)}")
-    c2.info(f"**Period:** {sel_qtr}")
-    
-    df = load_data(data_file)
+
+        fund_codes = list(available_funds.keys())
+        selected_fund = st.selectbox("Select Fund", fund_codes, format_func=lambda x: f"{get_fund_name(x)} ({x})")
+
+        fund_quarters = get_fund_quarters(selected_fund, available_funds[selected_fund])
+        available_quarters = list(fund_quarters.keys())
+        quarter_choices = generate_quarter_choices()
+        selectable_quarters = [q for q in quarter_choices if q in available_quarters] or available_quarters
+        selected_quarter = st.selectbox("Select Period", selectable_quarters) if selectable_quarters else None
+
+        st.markdown("---")
+        st.subheader("Export")
+
+    if selected_fund and selected_quarter:
+        data_file = fund_quarters.get(selected_quarter)
+        df = load_data(data_file) if data_file else pd.DataFrame()
+    else:
+        df = pd.DataFrame()
+
+    with st.sidebar:
+        if not df.empty:
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("Download CSV", csv, f"{selected_fund}_{selected_quarter.replace(' ', '_')}.csv", "text/csv", use_container_width=True)
+
     if df.empty:
-        st.info("📅 No meetings during this period.")
+        st.title("📊 Proxy Voting Dashboard")
+        st.info("No data available. Select a fund and period.")
         st.stop()
-    
-    stats = calc_stats(df)
-    
-    # Overview tables and charts
+
+    st.title("📊 Proxy Voting Dashboard")
+    c1, c2 = st.columns(2)
+    c1.info(f"**Fund:** {get_fund_name(selected_fund)}")
+    c2.info(f"**Period:** {selected_quarter}")
+
+    stats = calc_statistics(df)
+
+    st.markdown("### Key Metrics")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Meetings Voted", f"{stats['meetings']}")
+    m2.metric("Proposals Voted", f"{stats['proposals']:,}")
+    m3.metric("Mgmt Alignment", f"{stats['with_mgmt_pct']:.1f}%")
+    m4.metric("Dissent Votes", f"{stats['vs_mgmt']}")
+
+    st.markdown("---")
+
     left, right = st.columns(2)
-    
+
     with left:
         st.subheader("Meeting Overview")
         st.dataframe(pd.DataFrame({
             'Category': ['Votable meetings', 'Meetings voted', 'Meetings with dissent'],
             'Number': [stats['meetings'], stats['meetings'], stats['dissent']],
-            'Percentage': ['', '100.00%', f"{stats['dissent_pct']:.2f}%"]
+            'Percentage': ['—', '100.00%', f"{stats['dissent_pct']:.2f}%"]
         }), hide_index=True, use_container_width=True)
-        
+
         st.subheader("Proposal Overview")
         st.dataframe(pd.DataFrame({
-            'Category': [
-                'Votable items', 'Items voted', 'Votes FOR', 'Votes AGAINST', 'Votes ABSTAIN',
-                'Votes WITHHOLD', 'With Policy', 'Against Policy', 'With Mgmt', 'Against Mgmt',
-                'Shareholder Proposals'
-            ],
-            'Number': [
-                stats['proposals'], stats['proposals'], stats['for'], stats['against'],
-                stats['abstain'], stats['withhold'], stats['with_pol'], stats['vs_pol'],
-                stats['with_mgmt'], stats['vs_mgmt'], stats['sh_props']
-            ],
-            'Percentage': [
-                '', '100.00%', f"{stats['for_pct']:.2f}%", f"{stats['against_pct']:.2f}%",
-                f"{stats['abstain_pct']:.2f}%", f"{stats['withhold_pct']:.2f}%",
-                f"{stats['with_pol_pct']:.2f}%", f"{stats['vs_pol_pct']:.2f}%",
-                f"{stats['with_mgmt_pct']:.2f}%", f"{stats['vs_mgmt_pct']:.2f}%",
-                f"{stats['sh_props_pct']:.2f}%"
-            ]
-        }), hide_index=True, use_container_width=True, height=450)
-    
+            'Category': ['Votable items', 'Items voted', 'Votes FOR', 'Votes AGAINST', 'Votes ABSTAIN',
+                        'Votes WITHHOLD', 'With Policy', 'Against Policy', 'With Mgmt', 'Against Mgmt', 'Shareholder Proposals'],
+            'Number': [stats['proposals'], stats['proposals'], stats['for'], stats['against'], stats['abstain'],
+                      stats['withhold'], stats['with_pol'], stats['vs_pol'], stats['with_mgmt'], stats['vs_mgmt'], stats['sh_props']],
+            'Percentage': ['—', '100.00%', f"{stats['for_pct']:.2f}%", f"{stats['against_pct']:.2f}%", f"{stats['abstain_pct']:.2f}%",
+                          f"{stats['withhold_pct']:.2f}%", f"{stats['with_pol_pct']:.2f}%", f"{stats['vs_pol_pct']:.2f}%",
+                          f"{stats['with_mgmt_pct']:.2f}%", f"{stats['vs_mgmt_pct']:.2f}%", f"{stats['sh_props_pct']:.2f}%"]
+        }), hide_index=True, use_container_width=True, height=420)
+
     with right:
         st.subheader("Voting Statistics")
-        st.plotly_chart(chart_vote_stats(stats), use_container_width=True)
-        
+        st.plotly_chart(render_vote_stats_chart(stats), use_container_width=True)
         st.subheader("Vote Distribution")
-        donut = chart_donut(stats)
+        donut = render_vote_distribution_chart(stats)
         if donut:
             st.plotly_chart(donut, use_container_width=True)
-    
-    # Categories and Geography
-    st.subheader("Categories & Geography")
+
+    st.markdown("---")
+    st.markdown("### Analytics")
     c3, c4 = st.columns(2)
+
     with c3:
-        cat_chart = chart_cats(df)
+        st.subheader("Proposals by Category")
+        cat_chart = render_category_chart(df)
         if cat_chart:
             st.plotly_chart(cat_chart, use_container_width=True)
+
     with c4:
-        country_chart = chart_country(df)
+        st.subheader("Meetings by Country")
+        country_chart = render_country_chart(df)
         if country_chart:
             st.plotly_chart(country_chart, use_container_width=True)
-    
-    # Meeting Details
-    st.subheader("Meeting Details")
-    mtg_df = get_table(df, ['Company Name', 'Ticker', 'Country', 'Meeting Date', 'Meeting Type'])
-    if not mtg_df.empty:
-        render_grid(mtg_df, height=300)
-    
-    # Proposal Details with filters
-    st.subheader("Proposal Details")
-    prop_cols = [
-        'Company Name', 'Ticker', 'Meeting Date', 'Proposal Number', 'Proposal Text',
-        'Proponent', 'Management Recommendation', 'ISS Recommendation', 'Vote Instruction',
-        'Vote Against Management', 'Vote Against ISS'
-    ]
-    prop_df = get_table(df, prop_cols)
-    
-    if not prop_df.empty:
-        with st.expander("Filters"):
-            f1, f2, f3 = st.columns(3)
-            prps = ['All'] + (list(prop_df['Proponent'].dropna().unique()) if 'Proponent' in prop_df.columns else [])
-            sel_prp = f1.selectbox("Proponent", prps)
-            mgmt_f = f2.selectbox("Management Alignment", ['All', 'With Management', 'Against Management'])
-            comps = ['All'] + (sorted(prop_df['Company Name'].dropna().unique().tolist()) if 'Company Name' in prop_df.columns else [])
-            sel_comp = f3.selectbox("Company", comps)
-        
-        filt = prop_df.copy()
-        if sel_prp != 'All' and 'Proponent' in filt.columns:
-            filt = filt[filt['Proponent'] == sel_prp]
-        if mgmt_f != 'All' and 'Vote Against Management' in filt.columns:
-            filt = filt[filt['Vote Against Management'] == ('No' if mgmt_f == 'With Management' else 'Yes')]
-        if sel_comp != 'All' and 'Company Name' in filt.columns:
-            filt = filt[filt['Company Name'] == sel_comp]
-        
-        render_grid(filt, height=450)
-    
-    # Export
-    st.subheader("Export")
-    d1, d2 = st.columns(2)
-    d1.download_button(
-        "Download CSV", df.to_csv(index=False).encode('utf-8'),
-        f"{sel_fund}_{sel_qtr.replace(' ', '_')}.csv", "text/csv", use_container_width=True
-    )
-    d2.download_button(
-        "Download Report (HTML)", gen_report(df, sel_fund, sel_qtr).encode('utf-8'),
-        f"{sel_fund}_{sel_qtr.replace(' ', '_')}_report.html", "text/html", use_container_width=True
-    )
+
+    st.subheader("Vote Against Rate by Category")
+    c5, c6 = st.columns([2, 1])
+
+    with c5:
+        var_chart = render_vote_against_rate_chart(df)
+        if var_chart:
+            st.plotly_chart(var_chart, use_container_width=True)
+
+    with c6:
+        if 'Proposal Code Category' in df.columns and 'Vote Against Management' in df.columns:
+            cat_df = df.groupby('Proposal Code Category').agg(
+                Total_Proposals=('Proposal Text', 'count'),
+                Against_Mgmt=('Vote Against Management', lambda x: (x == 'Yes').sum())
+            ).reset_index()
+            cat_df['Vote Against Rate'] = cat_df['Against_Mgmt'] / cat_df['Total_Proposals']
+            cat_df = cat_df.sort_values('Total_Proposals', ascending=False).head(8)
+            st.dataframe(cat_df, use_container_width=True, column_config={
+                "Proposal Code Category": st.column_config.TextColumn("Category"),
+                "Total_Proposals": st.column_config.NumberColumn("Volume"),
+                "Against_Mgmt": st.column_config.NumberColumn("Against"),
+                "Vote Against Rate": st.column_config.ProgressColumn("Vote Against Rate", format="%.1f%%", min_value=0, max_value=1)
+            }, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### Detailed Breakdown")
+    tab1, tab2 = st.tabs(["📄 All Proposals", "🏢 Meetings List"])
+
+    with tab1:
+        prop_cols = ['Company Name', 'Ticker', 'Meeting Date', 'Proposal Number', 'Proposal Text',
+                     'Proponent', 'Management Recommendation', 'ISS Recommendation',
+                     'Vote Instruction', 'Vote Against Management', 'Vote Against ISS']
+        prop_df = get_table_data(df, prop_cols)
+
+        if not prop_df.empty:
+            with st.expander("🔍 Filters"):
+                f1, f2, f3 = st.columns(3)
+                proponents = ['All'] + (list(prop_df['Proponent'].dropna().unique()) if 'Proponent' in prop_df.columns else [])
+                sel_proponent = f1.selectbox("Proponent", proponents)
+                sel_mgmt = f2.selectbox("Management Alignment", ['All', 'With Management', 'Against Management'])
+                companies = ['All'] + (sorted(prop_df['Company Name'].dropna().unique().tolist()) if 'Company Name' in prop_df.columns else [])
+                sel_company = f3.selectbox("Company", companies)
+
+            filtered = prop_df.copy()
+            if sel_proponent != 'All' and 'Proponent' in filtered.columns:
+                filtered = filtered[filtered['Proponent'] == sel_proponent]
+            if sel_mgmt != 'All' and 'Vote Against Management' in filtered.columns:
+                filtered = filtered[filtered['Vote Against Management'] == ('No' if sel_mgmt == 'With Management' else 'Yes')]
+            if sel_company != 'All' and 'Company Name' in filtered.columns:
+                filtered = filtered[filtered['Company Name'] == sel_company]
+
+            st.dataframe(filtered, use_container_width=True, hide_index=True, height=450)
+            st.caption(f"Showing {len(filtered):,} of {len(prop_df):,} proposals")
+
+    with tab2:
+        mtg_cols = ['Company Name', 'Ticker', 'Country', 'Meeting Date', 'Meeting Type']
+        mtg_df = get_table_data(df, mtg_cols)
+        if not mtg_df.empty:
+            if 'Company Name' in df.columns:
+                prop_counts = df.groupby('Company Name').size().reset_index(name='Proposals')
+                mtg_df = mtg_df.merge(prop_counts, on='Company Name', how='left')
+            st.dataframe(mtg_df, use_container_width=True, hide_index=True, height=400)
+            st.caption(f"Total: {len(mtg_df):,} meetings")
 
 
 if __name__ == "__main__":
