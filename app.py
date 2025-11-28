@@ -176,7 +176,7 @@ def main():
             st.caption("Generate PDF via Print > Save as PDF in browser.")
 
     if df.empty:
-        st.markdown("### Please select a Fund and Period to begin.")
+        st.markdown("### Please select a Fund and Quarter to begin.")
         st.info("No data loaded or file is empty.")
         st.stop()
 
