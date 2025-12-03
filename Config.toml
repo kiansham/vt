@@ -1,0 +1,28 @@
+[theme]
+base = "light"
+
+# Color scheme - Navy primary
+textColor = "#1c1919"
+primaryColor = "#1E3A5F"
+backgroundColor = "#fafafa"
+secondaryBackgroundColor = "#ffffff"
+
+# Widget styling
+showWidgetBorder = true
+borderColor = "#e7e3e4"
+
+# Typography - system sans-serif
+font = "sans serif"
+baseFontWeight = 400
+baseFontSize = 14
+
+# Heading typography
+headingFont = "sans serif"
+headingFontWeights = [600, 300, 600]
+headingFontSizes = ["3rem", "2rem", "1rem"]
+
+[theme.sidebar]
+backgroundColor = "#f5f5f5"
+
+[server]
+headless = true
