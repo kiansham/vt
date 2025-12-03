@@ -9,13 +9,11 @@ from datetime import datetime
 st.set_page_config(page_title="Executive Proxy Dashboard", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
 COLORS = {
-    "primary": "#7c3aed",  # Purple
+    "primary": "#0f172a",
     "success": "#22c55e",
     "danger": "#ef4444",
     "warning": "#f59e0b",
-    "muted": "#94a3b8",
-    "light_bg": "#f8fafc",
-    "bar_bg": "#e2e8f0"
+    "muted": "#64748b"
 }
 
 FUND_NAME_MAP = {
@@ -35,54 +33,6 @@ def inject_css():
             border-radius: 8px;
         }
         footer { visibility: hidden; }
-
-        /* Clean metric cards */
-        .metric-card {
-            background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            margin-bottom: 1.5rem;
-        }
-
-        .metric-value {
-            font-size: 3.5rem;
-            font-weight: 700;
-            color: #7c3aed;
-            line-height: 1;
-            margin-bottom: 0.5rem;
-        }
-
-        .metric-label {
-            font-size: 0.95rem;
-            color: #64748b;
-            font-weight: 500;
-            margin-bottom: 1rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .progress-bar-container {
-            width: 100%;
-            height: 14px;
-            background-color: #e2e8f0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-top: 1rem;
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #7c3aed 0%, #a78bfa 100%);
-            border-radius: 10px;
-            transition: width 0.6s ease;
-        }
-
-        .section-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: #1e293b;
-            margin: 2rem 0 1rem 0;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -185,20 +135,6 @@ def calc_statistics(df):
         stats[f'{k}_pct'] = round(100 * stats[k] / max(total, 1), 2)
 
     return stats
-
-
-def render_metric_card(value, label, color="#7c3aed"):
-    """Render a clean metric card with large number and progress bar"""
-    html = f"""
-    <div class="metric-card">
-        <div class="metric-value" style="color: {color};">{value:.0f}%</div>
-        <div class="metric-label">{label}</div>
-        <div class="progress-bar-container">
-            <div class="progress-bar-fill" style="width: {value}%; background: linear-gradient(90deg, {color} 0%, {color}88 100%);"></div>
-        </div>
-    </div>
-    """
-    return html
 
 
 def render_vote_stats_chart(stats):
@@ -313,75 +249,61 @@ def main():
 
     stats = calc_statistics(df)
 
-    st.markdown("<div class='section-title'>Key Metrics</div>", unsafe_allow_html=True)
-
-    # Display large metrics with progress bars
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(render_metric_card(stats['with_mgmt_pct'], "Management Alignment", COLORS['primary']), unsafe_allow_html=True)
-
-    with col2:
-        st.markdown(render_metric_card(stats['with_pol_pct'], "Policy Alignment", COLORS['primary']), unsafe_allow_html=True)
-
-    with col3:
-        st.markdown(render_metric_card(stats['for_pct'], "Votes For", COLORS['primary']), unsafe_allow_html=True)
-
-    st.markdown("")
-
-    # Summary metrics in a cleaner format
+    st.markdown("### Key Metrics")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Meetings", f"{stats['meetings']}")
-    m2.metric("Proposals", f"{stats['proposals']:,}")
-    m3.metric("Against Mgmt", f"{stats['vs_mgmt']}")
-    m4.metric("Dissent Rate", f"{stats['dissent_pct']:.1f}%")
+    m1.metric("Meetings Voted", f"{stats['meetings']}")
+    m2.metric("Proposals Voted", f"{stats['proposals']:,}")
+    m3.metric("Mgmt Alignment", f"{stats['with_mgmt_pct']:.1f}%")
+    m4.metric("Dissent Votes", f"{stats['vs_mgmt']}")
 
     st.markdown("---")
 
-    left, right = st.columns([1, 1])
+    left, right = st.columns(2)
 
     with left:
-        st.markdown("<div class='section-title'>Vote Distribution</div>", unsafe_allow_html=True)
+        st.subheader("Meeting Overview")
+        st.dataframe(pd.DataFrame({
+            'Category': ['Votable meetings', 'Meetings voted', 'Meetings with dissent'],
+            'Number': [stats['meetings'], stats['meetings'], stats['dissent']],
+            'Percentage': ['—', '100.00%', f"{stats['dissent_pct']:.2f}%"]
+        }), hide_index=True, use_container_width=True)
+
+        st.subheader("Proposal Overview")
+        st.dataframe(pd.DataFrame({
+            'Category': ['Votable items', 'Items voted', 'Votes FOR', 'Votes AGAINST', 'Votes ABSTAIN',
+                        'Votes WITHHOLD', 'With Policy', 'Against Policy', 'With Mgmt', 'Against Mgmt', 'Shareholder Proposals'],
+            'Number': [stats['proposals'], stats['proposals'], stats['for'], stats['against'], stats['abstain'],
+                      stats['withhold'], stats['with_pol'], stats['vs_pol'], stats['with_mgmt'], stats['vs_mgmt'], stats['sh_props']],
+            'Percentage': ['—', '100.00%', f"{stats['for_pct']:.2f}%", f"{stats['against_pct']:.2f}%", f"{stats['abstain_pct']:.2f}%",
+                          f"{stats['withhold_pct']:.2f}%", f"{stats['with_pol_pct']:.2f}%", f"{stats['vs_pol_pct']:.2f}%",
+                          f"{stats['with_mgmt_pct']:.2f}%", f"{stats['vs_mgmt_pct']:.2f}%", f"{stats['sh_props_pct']:.2f}%"]
+        }), hide_index=True, use_container_width=True, height=420)
+
+    with right:
+        st.subheader("Voting Statistics")
+        st.plotly_chart(render_vote_stats_chart(stats), use_container_width=True)
+        st.subheader("Vote Distribution")
         donut = render_vote_distribution_chart(stats)
         if donut:
             st.plotly_chart(donut, use_container_width=True)
 
-        st.markdown("<div class='section-title'>Meeting Overview</div>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame({
-            'Category': ['Total Meetings', 'Meetings Voted', 'Meetings with Dissent'],
-            'Count': [stats['meetings'], stats['meetings'], stats['dissent']],
-            'Rate': ['—', '100%', f"{stats['dissent_pct']:.1f}%"]
-        }), hide_index=True, use_container_width=True)
-
-    with right:
-        st.markdown("<div class='section-title'>Proposal Breakdown</div>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame({
-            'Category': ['Total Proposals', 'Votes FOR', 'Votes AGAINST', 'Votes ABSTAIN',
-                        'With Mgmt', 'Against Mgmt', 'With Policy', 'Against Policy'],
-            'Count': [stats['proposals'], stats['for'], stats['against'], stats['abstain'],
-                      stats['with_mgmt'], stats['vs_mgmt'], stats['with_pol'], stats['vs_pol']],
-            'Percentage': ['—', f"{stats['for_pct']:.1f}%", f"{stats['against_pct']:.1f}%", f"{stats['abstain_pct']:.1f}%",
-                          f"{stats['with_mgmt_pct']:.1f}%", f"{stats['vs_mgmt_pct']:.1f}%",
-                          f"{stats['with_pol_pct']:.1f}%", f"{stats['vs_pol_pct']:.1f}%"]
-        }), hide_index=True, use_container_width=True)
-
     st.markdown("---")
-    st.markdown("<div class='section-title'>Analytics</div>", unsafe_allow_html=True)
+    st.markdown("### Analytics")
     c3, c4 = st.columns(2)
 
     with c3:
-        st.markdown("**Proposals by Category**")
+        st.subheader("Proposals by Category")
         cat_chart = render_category_chart(df)
         if cat_chart:
             st.plotly_chart(cat_chart, use_container_width=True)
 
     with c4:
-        st.markdown("**Meetings by Country**")
+        st.subheader("Meetings by Country")
         country_chart = render_country_chart(df)
         if country_chart:
             st.plotly_chart(country_chart, use_container_width=True)
 
-    st.markdown("**Vote Against Rate by Category**")
+    st.subheader("Vote Against Rate by Category")
     c5, c6 = st.columns([2, 1])
 
     with c5:
@@ -405,7 +327,7 @@ def main():
             }, hide_index=True)
 
     st.markdown("---")
-    st.markdown("<div class='section-title'>Detailed Breakdown</div>", unsafe_allow_html=True)
+    st.markdown("### Detailed Breakdown")
     tab1, tab2 = st.tabs(["📄 All Proposals", "🏢 Meetings List"])
 
     with tab1:
