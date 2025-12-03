@@ -202,83 +202,12 @@ def render_metric_card(value, label, color="#7c3aed"):
 
 
 def render_vote_stats_chart(stats):
-    """
-    Renders completion metrics as clean text-based indicators.
-    Since voting completion is always ~100%, traditional bar charts waste space
-    and obscure the key insight: proximity to 100%.
-    """
-    # Calculate completion percentages (assuming votable = voted for now)
-    categories = [
-        {'label': 'Meetings', 'voted': stats['meetings'], 'votable': stats['meetings']},
-        {'label': 'Ballots', 'voted': stats['ballots'], 'votable': stats['ballots']},
-        {'label': 'Proposals', 'voted': stats['proposals'], 'votable': stats['proposals']}
-    ]
-
-    # Create simple text-based completion display
+    cats = ['Meetings', 'Ballots', 'Proposals']
+    vals = [stats['meetings'], stats['ballots'], stats['proposals']]
     fig = go.Figure()
-
-    y_positions = ['Proposals', 'Ballots', 'Meetings']
-    completion_pcts = []
-    annotations = []
-
-    for i, cat in enumerate(categories):
-        pct = 100.0 if cat['votable'] == 0 else (cat['voted'] / cat['votable']) * 100
-        completion_pcts.append(pct)
-
-        # Add completion percentage as text annotation
-        annotations.append(
-            dict(
-                x=50,
-                y=y_positions[i],
-                text=f"<b>{cat['voted']:,}</b> voted ({pct:.1f}%)",
-                showarrow=False,
-                font=dict(size=14, color=COLORS['primary']),
-                xanchor='center'
-            )
-        )
-
-    # Add subtle background indicator for completion
-    fig.add_trace(go.Bar(
-        y=y_positions,
-        x=[100] * 3,
-        orientation='h',
-        marker=dict(color='#f1f5f9', line=dict(width=0)),
-        showlegend=False,
-        hoverinfo='skip'
-    ))
-
-    # Add completion bars
-    fig.add_trace(go.Bar(
-        y=y_positions,
-        x=completion_pcts,
-        orientation='h',
-        marker=dict(color=COLORS['success'], line=dict(width=0)),
-        showlegend=False,
-        text=[f"{p:.1f}%" for p in completion_pcts],
-        textposition='none',
-        hovertemplate='%{y}: %{x:.1f}% complete<extra></extra>'
-    ))
-
-    fig.update_layout(
-        barmode='overlay',
-        height=200,
-        xaxis=dict(
-            range=[0, 100],
-            title="Completion Rate (%)",
-            showgrid=False,
-            zeroline=False
-        ),
-        yaxis=dict(
-            title=None,
-            showgrid=False,
-            zeroline=False
-        ),
-        annotations=annotations,
-        margin=dict(l=10, r=10, t=10, b=40),
-        plot_bgcolor='white',
-        paper_bgcolor='white'
-    )
-
+    fig.add_trace(go.Bar(name='Votable', y=cats, x=vals, orientation='h', marker_color=COLORS['primary'], text=vals, textposition='inside'))
+    fig.add_trace(go.Bar(name='Voted', y=cats, x=vals, orientation='h', marker_color=COLORS['danger'], text=vals, textposition='inside'))
+    fig.update_layout(barmode='overlay', height=280, xaxis=dict(type='log'))
     return fig
 
 
