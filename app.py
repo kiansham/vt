@@ -223,5 +223,4 @@ def main():
             if sm!='All' and 'Vote Against Management' in flt.columns: flt = flt[flt['Vote Against Management']==('No' if sm=='With Management' else 'Yes')]
             st.dataframe(flt, use_container_width=True, hide_index=True); st.caption(f"Showing {len(flt):,} of {len(pdf):,} proposals")
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
