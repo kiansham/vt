@@ -47,27 +47,30 @@ def get_fund_qtrs(files):
     qtrs = {}
     for f in files:
         try:
-            df = pd.read_csv(f, nrows=100)
-            if 'Meeting Date' in df.columns and (q := get_qtr(df['Meeting Date'])) and q not in qtrs: qtrs[q] = f
+            # OPTIMIZATION 1: Read only needed column and fewer rows
+            df = pd.read_csv(f, nrows=5, usecols=['Meeting Date'])
+            if (q := get_qtr(df['Meeting Date'])) and q not in qtrs: qtrs[q] = f
         except: pass
     return qtrs
 
 @st.cache_data(ttl=600)
 def load(fp):
-    df = pd.read_csv(fp)
-    for c in ['Meeting Date', 'Record Date']:
-        if c in df.columns: df[c] = pd.to_datetime(df[c], errors='coerce', dayfirst=True)
-    return df
+    # OPTIMIZATION 2: Parse dates in C-engine during read
+    try:
+        return pd.read_csv(fp, parse_dates=['Meeting Date', 'Record Date'], dayfirst=True)
+    except ValueError:
+        return pd.read_csv(fp) # Fallback if cols missing
 
 def calc_stats(df):
     dv = df[df['Votable Proposal']=='Yes'].copy() if 'Votable Proposal' in df.columns else df.copy()
     total_props = len(dv)
     voted_props = len(dv[dv['Voted (Yes, No, Partial)'].isin(['Yes','Partial'])]) if 'Voted (Yes, No, Partial)' in dv.columns else len(dv)
     votable_mtgs = dv['Meeting ID'].nunique() if 'Meeting ID' in dv.columns else 0
+    
+    # OPTIMIZATION 3: Vectorized calculation instead of O(N^2) loop
     voted_mtgs = votable_mtgs
     if 'Voted (Yes, No, Partial)' in dv.columns and 'Meeting ID' in dv.columns:
-        no = dv[dv['Voted (Yes, No, Partial)']=='No']
-        if len(no): voted_mtgs = votable_mtgs - len({m for m in no['Meeting ID'].unique() if not dv[dv['Meeting ID']==m]['Voted (Yes, No, Partial)'].isin(['Yes','Partial']).any()})
+        voted_mtgs = dv[dv['Voted (Yes, No, Partial)'].isin(['Yes','Partial'])]['Meeting ID'].nunique()
     
     s = {'votable_mtgs': votable_mtgs, 'voted_mtgs': voted_mtgs, 'mtg_rate': round(100*voted_mtgs/votable_mtgs,2) if votable_mtgs else 0,
          'votable_props': total_props, 'voted_props': voted_props, 'prop_rate': round(100*voted_props/total_props,2) if total_props else 0,
@@ -156,7 +159,6 @@ def main():
     c1, c2 = st.columns([1,1.5]); c1.write(f"**Account:** {FUNDS.get(fund,fund)}"); c2.write(f"**Period:** {qtr_sel}")
     s, dv = calc_stats(df)
     
-
     st.markdown('<p class="section-header">Voting Overview</p>', unsafe_allow_html=True)
     c3, c4 = st.columns(2)
     with c3:
@@ -220,8 +222,6 @@ def main():
             if sp!='All' and 'Proponent' in flt.columns: flt = flt[flt['Proponent']==sp]
             if sm!='All' and 'Vote Against Management' in flt.columns: flt = flt[flt['Vote Against Management']==('No' if sm=='With Management' else 'Yes')]
             st.dataframe(flt, use_container_width=True, hide_index=True); st.caption(f"Showing {len(flt):,} of {len(pdf):,} proposals")
-
-if __name__ == "__main__": main()
 
 if __name__ == "__main__":
     main()
