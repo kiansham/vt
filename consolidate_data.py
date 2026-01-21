@@ -1,120 +1,100 @@
-#!/usr/bin/env python3
-"""
-Consolidate multiple voting data files into single files per fund.
-Deduplicates and prefers quarterly data over annual data.
-
-Usage: python consolidate_data.py [--data-dir ./data]
-"""
-
 import pandas as pd
-import glob
-import os
-import re
+import glob, os, shutil
 from datetime import datetime
 
+def extract_metadata(df):
+    period, fund = None, None
+    for i in range(len(df)):
+        val = str(df.iloc[i, 0])
+        if 'Reporting Period:' in val: period = val.split('Reporting Period:')[1].strip()
+        elif 'Institution Account(s):' in val: fund = val.split('Institution Account(s):')[1].strip()
+    return period, fund
 
-def get_file_priority(filename):
-    """Return priority score: lower = higher priority (quarterly > annual)"""
-    if re.search(r'Q[1-4]', filename, re.IGNORECASE):
-        return 1  # Quarterly
-    elif re.search(r'ANNUAL', filename, re.IGNORECASE):
-        return 2  # Annual
+def parse_period(s):
+    parts = s.split(' to ')
+    return datetime.strptime(parts[0].strip(), '%d-%b-%y'), datetime.strptime(parts[1].strip(), '%d-%b-%y')
+
+def extract_display_name(name):
+    return 'Firm' if name == 'All Institution Accounts' else (name.split(' - ')[-1] if ' - ' in name else name)
+
+def update_funds_csv(long_name, start, end, path='./data/funds.csv'):
+    display = extract_display_name(long_name)
+    s_str, e_str = start.strftime('%m/%d/%y'), end.strftime('%m/%d/%y')
+    df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame(columns=['short_name', 'long_name', 'display_name', 'start_date', 'end_date'])
+    mask = df['long_name'] == long_name
+    if not mask.any():
+        df = pd.concat([df, pd.DataFrame([{'short_name': 'TBD', 'long_name': long_name, 'display_name': display, 'start_date': s_str, 'end_date': e_str}])], ignore_index=True)
     else:
-        return 3  # Unknown/Legacy
+        idx = df[mask].index[0]
+        row = df.loc[idx]
+        if pd.isna(row['start_date']) or not row['start_date']:
+            df.loc[idx, ['start_date', 'end_date', 'display_name']] = [s_str, e_str, display]
+        else:
+            es, ee = datetime.strptime(str(row['start_date']), '%m/%d/%y'), datetime.strptime(str(row['end_date']), '%m/%d/%y')
+            df.loc[idx, ['start_date', 'end_date']] = [s_str if start < es else row['start_date'], e_str if end > ee else row['end_date']]
+            if pd.isna(row['display_name']) or not row['display_name']: df.loc[idx, 'display_name'] = display
+    df.to_csv(path, index=False)
+    return display
 
+def process_file(filepath):
+    print(f"Processing: {os.path.basename(filepath)}")
+    raw = pd.read_excel(filepath, header=None)
+    has_data = not (len(raw) > 1 and 'Sorry - the criteria selected did not match any results.' in str(raw.iloc[1, 0]))
+    if not has_data: print("  No data available")
+    params_row = next((i for i in range(len(raw)) if str(raw.iloc[i, 0]) == 'Parameters'), None)
+    if params_row is None: print("  ERROR: No 'Parameters' row found"); return
+    period_str, fund_name = extract_metadata(raw)
+    if not period_str or not fund_name: print("  ERROR: Missing metadata"); return
+    display = update_funds_csv(fund_name, *parse_period(period_str))
+    data_df = raw.iloc[1:params_row].copy() if has_data and params_row > 1 else pd.DataFrame(columns=raw.iloc[0])
+    if has_data and params_row > 1: data_df.columns = raw.iloc[0]
+    for d in ['./data/processed', './data/archive']: os.makedirs(d, exist_ok=True)
+    output = f"./data/processed/{display}_{period_str.replace(' to ', '_').replace('-', '')}.csv"
+    data_df.to_csv(output, index=False)
+    print(f"  Saved: {os.path.basename(output)}")
+    shutil.move(filepath, f"./data/archive/{os.path.basename(filepath)}")
+    print(f"  Archived: {os.path.basename(filepath)}")
 
-def scan_dir(directory):
-    """Scan subdirectories for CSV files, grouped by fund folder name"""
+def consolidate_processed():
+    files = glob.glob('./data/processed/*.csv')
+    if not files: print("No processed files found"); return
     funds = {}
-
-    # Get all subdirectories (each represents a fund)
-    for fund_dir in glob.glob(os.path.join(directory, "*/")):
-        fund_id = os.path.basename(fund_dir.rstrip('/'))
-
-        # Skip special folders
-        if fund_id in ['consolidated', 'archive', '.git']:
-            continue
-
-        # Find all CSV files in this fund's directory (excluding archive subfolders)
-        csv_files = []
-        for f in glob.glob(os.path.join(fund_dir, "*.[cC][sS][vV]")):
-            csv_files.append(f)
-
-        if csv_files:
-            funds[fund_id] = csv_files
-
-    return funds
-
-
-def consolidate_fund(fund_id, file_paths, output_dir):
-    """Consolidate all files for a fund into single CSV"""
-    print(f"Processing {fund_id}: {len(file_paths)} files")
-
-    # Sort by priority (quarterly first)
-    file_paths = sorted(file_paths, key=lambda f: (get_file_priority(f), f))
-
-    # Load all files
-    dfs = []
-    for fp in file_paths:
-        try:
-            df = pd.read_csv(fp, parse_dates=['Meeting Date', 'Record Date'], dayfirst=True)
-            df['_source_file'] = os.path.basename(fp)
-            df['_file_priority'] = get_file_priority(fp)
-            dfs.append(df)
-            print(f"  Loaded: {os.path.basename(fp)} ({len(df)} rows)")
-        except Exception as e:
-            print(f"  ERROR loading {fp}: {e}")
-
-    if not dfs:
-        print(f"  No valid files for {fund_id}, skipping")
-        return
-
-    # Concatenate
-    combined = pd.concat(dfs, ignore_index=True)
-    print(f"  Combined: {len(combined)} total rows")
-
-    # Deduplicate by Meeting ID + Proposal Number (keep first = highest priority)
-    if 'Meeting ID' in combined.columns and 'Proposal Number' in combined.columns:
-        # Sort by priority then row order
-        combined = combined.sort_values('_file_priority')
-        before = len(combined)
-        combined = combined.drop_duplicates(subset=['Meeting ID', 'Proposal Number'], keep='first')
-        after = len(combined)
-        print(f"  Deduplicated: {before - after} duplicates removed, {after} rows remaining")
-
-    # Remove helper columns
-    combined = combined.drop(columns=['_source_file', '_file_priority'])
-
-    # Sort by date for cleaner output
-    if 'Meeting Date' in combined.columns:
-        combined = combined.sort_values('Meeting Date')
-
-    # Save to consolidated folder
-    consolidated_dir = os.path.join(output_dir, 'consolidated')
-    os.makedirs(consolidated_dir, exist_ok=True)
-    output_path = os.path.join(consolidated_dir, f"{fund_id}_consolidated.csv")
-    combined.to_csv(output_path, index=False)
-    print(f"  Saved: {output_path}")
-    print()
-
+    for f in files:
+        parts = os.path.basename(f).replace('.csv', '').split('_')
+        funds.setdefault('_'.join(parts[:-2]) if len(parts) > 2 else parts[0], []).append(f)
+    print(f"\nConsolidating {len(funds)} funds:\n")
+    os.makedirs('./data/consolidated', exist_ok=True)
+    for name, flist in funds.items():
+        print(f"{name}: {len(flist)} file(s)")
+        dfs = [pd.read_csv(f) for f in sorted(flist)]
+        for f, d in zip(sorted(flist), dfs): print(f"  Loaded: {os.path.basename(f)} ({len(d)} rows)")
+        combined = pd.concat(dfs, ignore_index=True)
+        print(f"  Combined: {len(combined)} rows")
+        if len(combined) == 0: print("  No data available")
+        elif 'Meeting ID' in combined.columns and 'ItemOnAgendaID' in combined.columns:
+            before = len(combined)
+            dups = combined[combined.duplicated(subset=['Meeting ID', 'ItemOnAgendaID'], keep='first')]
+            if len(dups) > 0:
+                os.makedirs('./data/duplicates', exist_ok=True)
+                dups.to_csv(f'./data/duplicates/{name}_duplicates.csv', index=False)
+                print(f"  Duplicates saved")
+            combined = combined.drop_duplicates(subset=['Meeting ID', 'ItemOnAgendaID'], keep='first')
+            print(f"  Deduplicated: {before - len(combined)} removed")
+        if len(combined) > 0 and 'Meeting Date' in combined.columns:
+            combined['Meeting Date'] = pd.to_datetime(combined['Meeting Date'], errors='coerce')
+            combined = combined.sort_values('Meeting Date')
+        combined.to_csv(f'./data/consolidated/{name}_consolidated.csv', index=False)
+        print(f"  Saved: {name}_consolidated.csv\n")
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description='Consolidate voting data files')
-    parser.add_argument('--data-dir', default='./data', help='Data directory path')
-    args = parser.parse_args()
+    files = glob.glob('./data/*.XLSX') + glob.glob('./data/*.xlsx')
+    if not files: print("No XLSX files found, running consolidation..."); consolidate_processed(); return
+    print(f"Found {len(files)} files\n")
+    for f in files:
+        try: process_file(f); print()
+        except Exception as e: print(f"  ERROR: {e}\n")
+    consolidate_processed()
 
-    data_dir = args.data_dir
-
-    print(f"Scanning {data_dir} for CSV files...")
-    funds = scan_dir(data_dir)
-    print(f"Found {len(funds)} funds: {list(funds.keys())}\n")
-
-    for fund_id, files in funds.items():
-        consolidate_fund(fund_id, files, data_dir)
-
-    print(f"Consolidation complete at {datetime.now()}")
-
-
-if __name__ == '__main__':
+if __name__ == '__main__': 
     main()
+
